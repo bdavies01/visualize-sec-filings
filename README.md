@@ -1,3 +1,3 @@
 # finance
 
-yahoo finance API into generating a "sankey diagram"
+## Scraping data from SEC's Edgar system and visualizing it

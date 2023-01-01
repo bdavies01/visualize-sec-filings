@@ -1,0 +1,4 @@
+# ignore all subfolders
+*/* 
+company_tickers_swp.json
+.DS_Store
