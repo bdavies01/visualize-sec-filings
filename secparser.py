@@ -374,6 +374,8 @@ def draw_sankey_diagram(ticker, filing):
     sources = []
     targets = []
     values = []
+    x = []
+    y = []
 
     revenue = -1
 
@@ -394,9 +396,11 @@ def draw_sankey_diagram(ticker, filing):
             labels.append(out[0][n])
             sources.append(n)
             values.append(out[1][n])
-        for _ in range(len(sources)):
+        for n in range(len(sources)):
             targets.append(len(sources))
             colors.append("orange")
+            x.append(0)
+            y.append((n+1)/len(sources))
     else:
         if segment_link:
             print(segment_link)
@@ -421,12 +425,15 @@ def draw_sankey_diagram(ticker, filing):
             for _ in range(len(sources)):
                 targets.append(len(sources))
                 colors.append("orange")
+                x.append(0)
+                y.append((n+1)/len(sources))
         else:
             print("Couldn't find segment table")
     
     last_idx = len(sources) # cache how many segments we added
     index_tracker = 0
-    labels.append("Revenue")
+    # labels.append("Revenue")
+    # colors.append("green")
 
     category_tracker = 0
 
@@ -444,29 +451,61 @@ def draw_sankey_diagram(ticker, filing):
     insertion_idx = 0
     total_opex = 0
     opinc = 0
+    opex_ctr = 0
 
     for idx, k in enumerate(csv_dict.keys()):
         if k == "OpInc":
             opinc = csv_dict[k]
             continue
         if k == "Revenue":
+            labels.append("Revenue")
+            colors.append("green")
+            x.append(0.3)
+            y.append(0.48)
             continue
         if k == "Tax":
+            x.append(0.9)
+            y.append(0.35)
             category_tracker += 1
+        if k == "COGS":
+            x.append(0.5)
+            y.append(min(0.5 + csv_dict[k]/csv_dict["Revenue"], 0.75))
+        if k == "Gross profit":
+            x.append(0.5)
+            # y.append(0.3)
+            y.append(max(0.5 - csv_dict[k]/csv_dict["Revenue"], 0.15))
+        if k == "Net income":
+            x.append(0.9)
+            print('x')
+            y.append(0.1)
         if k not in csv_keywords:
+            opex_ctr += 1
             if "Operating Expenses" not in labels:
                 insertion_idx = idx + num_segments - 1
                 labels.append("Operating Expenses")
                 labels.append("Operating Income")
+                colors.append("red")
+                colors.append("green")
+                x.append(0.68)
+                y.append(0.55)
+                x.append(0.68)
+                y.append(0.15)
+
                 category_tracker += 2
                 sources.append(last_idx + category_tracker)
                 sources.append(last_idx + category_tracker)
                 category_tracker += 1
+            x.append(0.9)
+            y.append(0.45 + (opex_ctr * 0.15))
             total_opex += csv_dict[k]
 
         labels.append(k)
         values.append(csv_dict[k])
         sources.append(last_idx + category_tracker)
+        if k == "Net income" or k == "Gross profit":
+            colors.append("green")
+        else:
+            colors.append("red")
 
     values.insert(insertion_idx, total_opex)
     values.insert(insertion_idx+1, opinc)
@@ -476,11 +515,13 @@ def draw_sankey_diagram(ticker, filing):
         targets.append(n)
 
 
-    print(len(labels))
-    print("labels:", labels)
-    print("values:", values)
-    print("sources:", sources)
-    print("targets:", targets)
+    # print("labels:", labels)
+    # print("values:", values)
+    # print("sources:", sources)
+    # print("targets:", targets)
+    # print("colors:", colors)
+    print("x:", x)
+    print("y:", y)
 
     sk_node = dict(
         pad = 15,
@@ -488,9 +529,9 @@ def draw_sankey_diagram(ticker, filing):
         line = dict(color = "black", width = 0.5),
 
         label = labels,
-        color = ["orange", "orange", "orange", "green", "red", "green", "red", "green", "red", "red", "red", "red", "green"],
-        # x = [0.1, 0.3, 0.3, 0.6, 0.6, 0.9, 0.9, 0.9, 0.9, 0.9],
-        # y = [0.5, 1-(0.5*(62650/198270)), 0.5*(135620/198270), 0.6, 0.3, 0.55, 0.6, 0.65, 0.35, 0.2]
+        color = colors,
+        x = x,
+        # y = y,
     )
 
     sk_link = dict(
@@ -503,7 +544,7 @@ def draw_sankey_diagram(ticker, filing):
         node = sk_node,
         link = sk_link)])
 
-    fig.update_layout(title_text=ticker, font_size=20)
+    fig.update_layout(title_text=ticker, font_size=20, autosize=True)
     fig.show()
 
 
@@ -515,4 +556,4 @@ if not os.path.exists(root_dir + "company_tickers_swp.json"):
 # get_table_links()
 # parse_income_statements("TSLA")
 # get_segment_link("MSFT", "2022-04-26_10-Q")
-draw_sankey_diagram("TSLA", "2022-04-25_10-Q")
+draw_sankey_diagram("MSFT", "2022-04-26_10-Q")
