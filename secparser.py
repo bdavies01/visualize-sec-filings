@@ -284,11 +284,20 @@ class Parser:
                                                                         .replace("(", "")
                                                                         .replace(")","")
                                                                         .replace(",", ""))
-                        numbers = [float(numerical_cols[n].text.replace("$","")
-                                                            .replace(",","")
-                                                            .replace("(","")
-                                                            .replace(")","")
-                                                            .strip()) for n in range(len(numerical_cols))]
+                        extracted_text = [numerical_cols[n].text.replace("$","")
+                                                                .replace(",","")
+                                                                .replace("(","")
+                                                                .replace(")","")
+                                                                .strip() for n in range(len(numerical_cols))]
+                        # the year 2015 has a span with text containing "us-gaap" which messes up casting to a float
+                        # so we need to filter for it
+                        numbers = []
+                        for n in range(len(extracted_text)):
+                            if "us-gaap" in extracted_text[n]:
+                                split_text = extracted_text[n].split("us-gaap")
+                                numbers.append(float(split_text[0]))
+                            else:
+                                numbers.append(float(extracted_text[n]))
 
                         for idx, col in enumerate(numerical_cols):
                             if "(" in col.text.strip():
