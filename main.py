@@ -4,14 +4,15 @@ from util import *
 from datetime import datetime
 from secparser import Parser
 
-def process_data(ticker, tQ, tK, start_date, end_date):
+def process_data(ticker, tQ, tK, start_date, end_date, fetch_all):
     parser = Parser(ticker, [tQ, tK], start_date, end_date)
-    return_str = parser.get_all_filings()
-    if return_str:
-        return return_str
-    return_str = parser.get_table_links()
-    if return_str:
-        return return_str
+    if fetch_all:
+        return_str = parser.get_all_filings()
+        if return_str:
+            return return_str
+        return_str = parser.get_table_links()
+        if return_str:
+            return return_str
     return_str = parser.parse_income_statements()
     if return_str:
         return return_str
@@ -35,6 +36,9 @@ class App:
 
         self.tK_status = tk.IntVar()
         self.tK_box = tk.Checkbutton(root, text="10-K", variable=self.tK_status)
+
+        self.fetch_all_status = tk.IntVar()
+        self.fetch_all_box = tk.Checkbutton(root, text="Fetch all tables", variable=self.fetch_all_status)
         
         # Place the labels and text boxes in a grid
         self.text_label.grid(row=0, column=0)
@@ -45,10 +49,11 @@ class App:
         self.date1.grid(row=1, column=1)
         self.date2_label.grid(row=2, column=0)
         self.date2.grid(row=2, column=1)
+        self.fetch_all_box.grid(row=3, column=0)
         
         # Create the submit button
         self.submit = tk.Button(root, text="Submit", command=self.on_submit)
-        self.submit.grid(row=3, column=0, columnspan=2)
+        self.submit.grid(row=3, column=0, columnspan=4)
     
     def on_submit(self):
         # Get the user-entered data
@@ -71,7 +76,7 @@ class App:
             date2 = datetime.now()
         
         # Perform some processing on the data
-        result = process_data(ticker_str, self.tQ_status.get(), self.tK_status.get(), date1, date2)
+        result = process_data(ticker_str, self.tQ_status.get(), self.tK_status.get(), date1, date2, self.fetch_all_status.get())
         
         # Create a new label to display the result
         self.result_label = tk.Label(root, text=result)
