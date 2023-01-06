@@ -4,20 +4,6 @@ from util import *
 from datetime import datetime
 from secparser import Parser
 
-def process_data(ticker, tQ, tK, start_date, end_date, fetch_all):
-    parser = Parser(ticker, [tQ, tK], start_date, end_date)
-    if fetch_all:
-        return_str = parser.get_all_filings()
-        if return_str:
-            return return_str
-        return_str = parser.get_table_links()
-        if return_str:
-            return return_str
-    return_str = parser.parse_income_statements()
-    if return_str:
-        return return_str
-    return "Success"
-
 # written with help from chatGPT...
 class App:
     def __init__(self, root):
@@ -38,7 +24,7 @@ class App:
         self.tK_box = tk.Checkbutton(root, text="10-K", variable=self.tK_status)
 
         self.fetch_all_status = tk.IntVar()
-        self.fetch_all_box = tk.Checkbutton(root, text="Fetch all tables", variable=self.fetch_all_status)
+        self.fetch_all_box = tk.Checkbutton(root, text="Fetch all tables (first run)", variable=self.fetch_all_status)
         
         # Place the labels and text boxes in a grid
         self.text_label.grid(row=0, column=0)
@@ -53,16 +39,40 @@ class App:
         
         # Create the submit button
         self.submit = tk.Button(root, text="Submit", command=self.on_submit)
-        self.submit.grid(row=3, column=0, columnspan=4)
+        self.submit.grid(row=3, column=1)
+
+    def process_data(self, ticker, tQ, tK, start_date, end_date, fetch_all):
+        self.parser = Parser(ticker, [tQ, tK], start_date, end_date)
+        if fetch_all:
+            exit_status = self.parser.get_all_filings()
+            if exit_status:
+                return exit_status
+        table_links = self.parser.get_table_links()
+        
+        parsed_statements = self.parser.parse_income_statements(table_links)
+        return parsed_statements
+
+    def submit_statement(self, statement):
+        print(statement)
+        self.parser.draw_sankey_diagram(statement)
     
     def on_submit(self):
         # Get the user-entered data
         ticker_str = self.ticker.get()
+        if not ticker_str:
+            self.no_ticker_label = tk.Label(root, text="No ticker entered!")
+            self.no_ticker_label.grid(row=4, column=1)
+            return
         date1_str = self.date1.get()
         date2_str = self.date2.get()
 
-        print(self.tQ_status.get())
-        print(self.tK_status.get())
+        tQ = self.tQ_status.get()
+        tK = self.tK_status.get()
+
+        if not tQ and not tK:
+            self.no_filing_label = tk.Label(root, text="No filing checked!")
+            self.no_filing_label.grid(row=4, column=1)
+            return
         
         date1 = None
         date2 = None
@@ -76,11 +86,14 @@ class App:
             date2 = datetime.now()
         
         # Perform some processing on the data
-        result = process_data(ticker_str, self.tQ_status.get(), self.tK_status.get(), date1, date2, self.fetch_all_status.get())
-        
-        # Create a new label to display the result
-        self.result_label = tk.Label(root, text=result)
-        self.result_label.grid(row=4, column=0)
+        result = self.process_data(ticker_str, tQ, tK, date1, date2, self.fetch_all_status.get())
+        self.result_label = tk.Label(root, text="Parsed the following statements:")
+        self.result_label.grid(row=4, column=1)
+
+        for idx, res in enumerate(result):
+            self.btn = tk.Button(root, text=res, command=lambda res=res: self.submit_statement(res))
+            self.btn.grid(row=5, column=idx)
+
 
 root_dir = os.getcwd()
 if not os.path.exists(root_dir + "company_tickers_swp.json"):

@@ -40,8 +40,9 @@ def read_two_col_csv_file(path_to_file):
 	with open(path_to_file, "r") as fp:
 		reader = csv.reader(fp)
 		for row in reader:
-			if index_tracker != 0:
-				keys.append(row[0])
-				values.append(float(row[1]))
-			index_tracker += 1
+			if len(row) != 0:
+				if index_tracker != 0:
+					keys.append(row[0])
+					values.append(float(row[1]))
+				index_tracker += 1
 	return [keys, values]

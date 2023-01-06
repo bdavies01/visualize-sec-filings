@@ -31,6 +31,7 @@ class Parser:
             self.filing_types.append("10-Q")
         if filing_types[1]:
             self.filing_types.append("10-K")
+        print(self.filing_types)
 
         self.company_dir = self.root_dir + "/" + ticker
 
@@ -157,6 +158,9 @@ class Parser:
 
     '''
     def get_links(self, report_name, summary_link_xml):
+        if not summary_link_xml:
+            print(f"No summary XML link found for {report_name}")
+            return 1
         response_2 = requests.get(summary_link_xml, headers=data_headers).content
         time.sleep(0.1)
         soup_2 = BeautifulSoup(response_2, 'lxml')
@@ -199,6 +203,7 @@ class Parser:
             # print('*'*50 + ' Inserting values into the table .... ' + '*'*50)
 
         csvOutput.close()
+        return 0
 
     '''
     having scraped all of the filings from the SEC, for each filing now extract
@@ -206,6 +211,7 @@ class Parser:
     we apply the date filter
     '''
     def get_table_links(self):
+        processed_reports = []
         file_path = self.company_dir + "/" + "all_filings.csv"
         report_name = ""
         #date is index 5
@@ -217,172 +223,194 @@ class Parser:
                         if row[5] == "Filing_Date":
                             continue
                         date_obj = datetime.strptime(row[5], "%Y-%m-%d")
+                        if row[3] not in self.filing_types:
+                            continue
+                        summary_link_xml = row[-1]
+                        report_name = row[5] + "_" + row[3]
                         # only process filings that are within date range
-                        if self.start_date <= date_obj < self.end_date:
-                            summary_link_xml = row[-1]
-                            report_name = row[5] + "_" + row[3]
-                            self.get_links(report_name, summary_link_xml)
+                        if self.start_date and self.end_date:
+                            if self.start_date <= date_obj < self.end_date:
+                                if not self.get_links(report_name, summary_link_xml):
+                                    processed_reports.append(report_name)
+                        elif self.start_date:
+                            if self.start_date <= date_obj:
+                                if not self.get_links(report_name, summary_link_xml):
+                                    processed_reports.append(report_name)
+                        elif self.end_date:
+                            if date_obj < self.end_date:
+                                if not self.get_links(report_name, summary_link_xml):
+                                    processed_reports.append(report_name)
+                        else:
+                            if not self.get_links(report_name, summary_link_xml):
+                                    processed_reports.append(report_name)
         except Exception as e:
             ret_str = f"Failed to extract table links for file: {report_name}\n{e}"
             print(ret_str)
-            return ret_str
+            return None
+        return processed_reports
 
 
     # For each company, look at each form (10-K, 10-Q) we have collected,
     # and extract the relevant data points from it.
     #
-    def parse_income_statements(self):
+    def parse_income_statements(self, statements):
         collected_urls = []
+        processed_statements = []
 
-        try:
+        if not os.path.exists(self.company_dir):
+            return "Company dir doesn't exist"
 
-            folders = [f for f in os.listdir(self.company_dir) if os.path.isdir(os.path.join(self.company_dir, f))]
+        # try:
 
-            for folder in folders:
-                filing_folder = self.company_dir + "/" + folder
-                file_path = filing_folder + "/filing_table_links.csv"
-                match = None
+            # folders = [f for f in os.listdir(self.company_dir) if os.path.isdir(os.path.join(self.company_dir, f))]
 
-                with open(file_path, "r") as fp:
-                    reader = csv.reader(fp)
-                    for row in reader:
-                        if len(row) > 0:
-                            row_fmt = row[0].lower().replace(" ", "_")
-                            for match_str in income_statement_str_match:
-                                match = re.search(match_str, row_fmt)
-                                if match:
-                                    collected_urls.append([filing_folder, row[1]])
-                                    break
+        for statement in statements:
+            filing_folder = self.company_dir + "/" + statement
+            file_path = filing_folder + "/filing_table_links.csv"
+            match = None
+
+            with open(file_path, "r") as fp:
+                reader = csv.reader(fp)
+                for row in reader:
+                    if len(row) > 0:
+                        row_fmt = row[0].lower().replace(" ", "_")
+                        for match_str in income_statement_str_match:
+                            match = re.search(match_str, row_fmt)
                             if match:
+                                collected_urls.append([filing_folder, row[1]])
+                                processed_statements.append(statement)
+                                break
+                        if match:
+                            break
+
+        for folder_path, url in collected_urls:
+            resp = requests.get(url, headers=data_headers)
+            time.sleep(0.1)
+            print(f"folder path: {folder_path}, url: {url}")
+            soup = BeautifulSoup(resp.content, "lxml")
+            main_table = soup.find_all("table")
+            total_revenue = []
+            cost_of_goods_sold = []
+            done_opex = False
+            gross_profit = []
+            opex_categories = {}
+            opex_totals = []
+            op_inc = []
+            tax = []
+            get_tax = False
+            net_income = []
+
+            for idx, row in enumerate(main_table[0].find_all("tr")):
+                row_title = row.find_all("td", {"class":"pl"})
+                numerical_cols = row.find_all("td", {"class":["nump", "num"]})
+                match = None
+                # we only want the numbers, title doesn't matter if it isn't
+                # attached to anything
+                if len(numerical_cols) != 0: 
+                    row_title_str = (row_title[0].text.strip().lower().replace(" ", "_")
+                                                                    .replace("(", "")
+                                                                    .replace(")","")
+                                                                    .replace(",", ""))
+                    extracted_text = [numerical_cols[n].text.replace("$","")
+                                                            .replace(",","")
+                                                            .replace("(","")
+                                                            .replace(")","")
+                                                            .strip() for n in range(len(numerical_cols))]
+                    # the year 2015 has a span with text containing "us-gaap" which messes up casting to a float
+                    # so we need to filter for it
+                    numbers = []
+                    for n in range(len(extracted_text)):
+                        if "us-gaap" in extracted_text[n]:
+                            split_text = extracted_text[n].split("us-gaap")
+                            numbers.append(float(split_text[0]))
+                        else:
+                            numbers.append(float(extracted_text[n]))
+
+                    for idx, col in enumerate(numerical_cols):
+                        if ")" in col.text.strip():
+                            numbers[idx] *= -1
+                    if not total_revenue:
+                        total_revenue = numbers.copy()
+
+                    if not cost_of_goods_sold:
+                        # check if no COGS
+                        if "operating" in row_title_str: #there is no cogs and we are skipping it
+                            cost_of_goods_sold = [0] * len(numerical_cols)
+                            gross_profit = total_revenue.copy()
+                        for match_str in cogs_str_match:
+                            match = re.search(match_str, row_title_str)
+                            if match:
+                                for n in range(len(numbers)):
+                                    cost_of_goods_sold.append(numbers[n])
+                                    gross_profit.append(total_revenue[n] - cost_of_goods_sold[n])
+
                                 break
 
-            for folder_path, url in collected_urls:
-                resp = requests.get(url, headers=data_headers)
-                time.sleep(0.1)
-                print(f"folder path: {folder_path}, url: {url}")
-                soup = BeautifulSoup(resp.content, "lxml")
-                main_table = soup.find_all("table")
-                total_revenue = []
-                cost_of_goods_sold = []
-                done_opex = False
-                gross_profit = []
-                opex_categories = {}
-                opex_totals = []
-                op_inc = []
-                tax = []
-                get_tax = False
-                net_income = []
+                    if not opex_totals:
+                        for n in range(len(numbers)):
+                            opex_totals.append(0)
+                            op_inc.append(0)
 
-                for idx, row in enumerate(main_table[0].find_all("tr")):
-                    row_title = row.find_all("td", {"class":"pl"})
-                    numerical_cols = row.find_all("td", {"class":["nump", "num"]})
-                    match = None
-                    # we only want the numbers, title doesn't matter if it isn't
-                    # attached to anything
-                    if len(numerical_cols) != 0: 
-                        row_title_str = (row_title[0].text.strip().lower().replace(" ", "_")
-                                                                        .replace("(", "")
-                                                                        .replace(")","")
-                                                                        .replace(",", ""))
-                        extracted_text = [numerical_cols[n].text.replace("$","")
-                                                                .replace(",","")
-                                                                .replace("(","")
-                                                                .replace(")","")
-                                                                .strip() for n in range(len(numerical_cols))]
-                        # the year 2015 has a span with text containing "us-gaap" which messes up casting to a float
-                        # so we need to filter for it
-                        numbers = []
-                        for n in range(len(extracted_text)):
-                            if "us-gaap" in extracted_text[n]:
-                                split_text = extracted_text[n].split("us-gaap")
-                                numbers.append(float(split_text[0]))
-                            else:
-                                numbers.append(float(extracted_text[n]))
-
-                        for idx, col in enumerate(numerical_cols):
-                            if "(" in col.text.strip():
-                                numbers[idx] *= -1
-                        if not total_revenue:
-                            total_revenue = numbers.copy()
-
-                        if not cost_of_goods_sold:
-                            # check if no COGS
-                            if "operating" in row_title_str: #there is no cogs and we are skipping it
-                                cost_of_goods_sold = [0] * len(numerical_cols)
-                                gross_profit = total_revenue.copy()
-                            for match_str in cogs_str_match:
-                                match = re.search(match_str, row_title_str)
-                                if match:
-                                    for n in range(len(numerical_cols)):
-                                        cost_of_goods_sold.append(numbers[n])
-                                        gross_profit.append(total_revenue[n] - cost_of_goods_sold[n])
-
-                                    break
-
-                        if not opex_totals:
-                            for n in range(len(numerical_cols)):
-                                opex_totals.append(0)
-                                op_inc.append(0)
-
-                        if match:
+                    if match:
+                        continue
+                    
+                    # got gross profit, now we do opex
+                    if gross_profit and not done_opex:
+                        first_num = numbers[0]
+                        if first_num == gross_profit[0]: #company explicitly included gross profit, we know next line is opex
                             continue
-                        
-                        # got gross profit, now we do opex
-                        if gross_profit and not done_opex:
-                            first_num = numbers[0]
-                            if first_num == gross_profit[0]: #company explicitly included gross profit, we know next line is opex
+                        else:
+                            if first_num == opex_totals[0] or first_num == op_inc[0] or first_num == opex_totals[0] + cost_of_goods_sold[0]: # OR MATCH "total operating"
+                                done_opex = True
                                 continue
                             else:
-                                if first_num == opex_totals[0] or first_num == op_inc[0] or first_num == opex_totals[0] + cost_of_goods_sold[0]: # OR MATCH "total operating"
-                                    done_opex = True
-                                    continue
-                                else:
-                                    # now doing opex
-                                    if not opex_categories.get(row_title_str, 0):
-                                        opex_categories[row_title[0].text.strip()] = []
-                                    for n in range(len(numerical_cols)):
-                                        opex_categories[row_title[0].text.strip()].append(numbers[n])
-                                        opex_totals[n] += numbers[n]
-                                        op_inc[n] = gross_profit[n] - opex_totals[n]
+                                # now doing opex
+                                if not opex_categories.get(row_title_str, 0):
+                                    opex_categories[row_title[0].text.strip()] = []
+                                for n in range(len(numbers)):
+                                    opex_categories[row_title[0].text.strip()].append(numbers[n])
+                                    opex_totals[n] += numbers[n]
+                                    op_inc[n] = gross_profit[n] - opex_totals[n]
 
-                        if not tax:
-                            if get_tax:
-                                tax = numbers.copy()
-                                continue
-                                
-                            match = re.search(r".*(before).*(tax)", row_title_str) #get the number after 'before tax'
-                            if match:
-                                get_tax = True   
+                    if not tax:
+                        if get_tax:
+                            tax = numbers.copy()
+                            continue
+                            
+                        match = re.search(r".*(before).*(tax)", row_title_str) #get the number after 'before tax'
+                        if match:
+                            get_tax = True   
 
-                        if not net_income:
-                            match = re.search(r"(.*(net)_((income)|(earning(s*)))(_loss)*$)|((net_)*profit(s*)(_loss)*$)", row_title_str) #i can make this regex look nicer
-                            if match:
-                                net_income = numbers.copy()
+                    if not net_income:
+                        match = re.search(r"(.*(net)_((income)|(earning(s*)))(_loss)*$)|((net_)*profit(s*)(_loss)*$)", row_title_str) #i can make this regex look nicer
+                        if match:
+                            net_income = numbers.copy()
 
-                print("Revenue:", total_revenue)
-                print("COGS:", cost_of_goods_sold)
-                print("Gross profit:", gross_profit)
-                print("OpEx:", opex_categories)
-                print("OpInc:", op_inc)
-                print("Tax:", tax)
-                print("Net income:", net_income, "\n")
+            print("Revenue:", total_revenue)
+            print("COGS:", cost_of_goods_sold)
+            print("Gross profit:", gross_profit)
+            print("OpEx:", opex_categories)
+            print("OpInc:", op_inc)
+            print("Tax:", tax)
+            print("Net income:", net_income, "\n")
 
-                csvOutput = open(folder_path + "/income_stmt_summary.csv", "w")
-                csvWriter = csv.writer(csvOutput, quoting = csv.QUOTE_NONNUMERIC)
-                csvWriter.writerow(["Revenue"] + list(map(str, total_revenue)))
-                csvWriter.writerow(["COGS"] + list(map(str, cost_of_goods_sold)))
-                csvWriter.writerow(["Gross profit"] + list(map(str, gross_profit)))
-                for key in opex_categories.keys():
-                    csvWriter.writerow([key] + list(map(str, opex_categories[key])))
-                csvWriter.writerow(["OpInc"] + list(map(str, op_inc)))
-                csvWriter.writerow(["Tax"] + list(map(str, tax)))
-                csvWriter.writerow(["Net income"] + list(map(str, net_income)))
-                # transpose it later
-                csvOutput.close()
-        except Exception as e:
-            ret_str = f"Failed to parse income statements\n{e}"
-            print(ret_str)
-            return ret_str
+            csvOutput = open(folder_path + "/income_stmt_summary.csv", "w")
+            csvWriter = csv.writer(csvOutput, quoting = csv.QUOTE_NONNUMERIC)
+            csvWriter.writerow(["Revenue"] + list(map(str, total_revenue)))
+            csvWriter.writerow(["COGS"] + list(map(str, cost_of_goods_sold)))
+            csvWriter.writerow(["Gross profit"] + list(map(str, gross_profit)))
+            for key in opex_categories.keys():
+                csvWriter.writerow([key] + list(map(str, opex_categories[key])))
+            csvWriter.writerow(["OpInc"] + list(map(str, op_inc)))
+            csvWriter.writerow(["Tax"] + list(map(str, tax)))
+            csvWriter.writerow(["Net income"] + list(map(str, net_income)))
+            # transpose it later
+            csvOutput.close()
+        # except Exception as e:
+        #     ret_str = f"Failed to parse income statements\n{e}"
+        #     print(ret_str)
+        #     return None
+        return processed_statements
 
     def get_segment_link(self, filing_str):
         files = [f for f in os.listdir(self.company_dir) if os.path.isfile(os.path.join(self.company_dir, f))]
@@ -392,9 +420,10 @@ class Parser:
         with open(filing_dir + "/filing_table_links.csv", "r") as fp:
             reader = csv.reader(fp)
             for row in reader:
-                row_fmt = row[0].lower().replace(" ", "_")
-                if "segment" in row_fmt:
-                    return row[1]
+                if len(row) > 0:
+                    row_fmt = row[0].lower().replace(" ", "_")
+                    if "segment" in row_fmt:
+                        return row[1]
 
 
     # filing_str: string for the name of the filing ex: "2022-04-29_10-Q"
@@ -419,7 +448,7 @@ class Parser:
         num_segments = 0
 
         # have user input the segment values, format is too varied to parse...
-        segment_link = self.get_segment_link(self.ticker, filing)
+        segment_link = self.get_segment_link(filing)
         segment_path = filing_dir + "/" + "segment_information.csv"
         if os.path.exists(segment_path):
             # read it
@@ -458,7 +487,7 @@ class Parser:
                     index_tracker += 1
                     writer.writerow(curr_row)
                 fp.close()
-                for _ in range(len(sources)):
+                for n in range(len(sources)):
                     targets.append(len(sources))
                     colors.append("orange")
                     x.append(0)
@@ -479,8 +508,9 @@ class Parser:
         with open(filing_dir + "/" + "income_stmt_summary.csv", "r") as fp:
             reader = csv.reader(fp)
             for row in reader:
-                csv_items += 1
-                csv_dict[row[0]] = float(row[1])
+                if len(row) > 0:
+                    csv_items += 1
+                    csv_dict[row[0]] = float(row[1])
 
         print(csv_dict)
         csv_keywords = ["Revenue", "COGS", "Gross profit", "OpInc", "Tax", "Net income"]
@@ -583,9 +613,8 @@ class Parser:
         fig.update_layout(title_text=self.ticker, font_size=20, autosize=True)
         fig.show()
 
-
-# get_all_filings()
-# get_table_links()
-# parse_income_statements("TSLA")
-# get_segment_link("MSFT", "2022-04-26_10-Q")
-# draw_sankey_diagram("TSLA", "2022-04-25_10-Q")
+# d = datetime.strptime("01-01-2022", "%m-%d-%Y")
+# p = Parser("TSLA", [1, 0], None, None)
+# collected = p.get_table_links()
+# p.parse_income_statements(collected)
+# print(collected)
