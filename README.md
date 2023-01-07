@@ -1,4 +1,4 @@
-# finance
+# visualize-sec-filings
 
 ## Scraping data from SEC's Edgar system and visualizing it
 Given a ticker of a publicly traded company, retrieve their 10-K (annual) or 10-Q (quarterly) reports and viusalize them using a Sankey diagram. 
