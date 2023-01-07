@@ -469,29 +469,30 @@ class Parser:
         else:
             if segment_link:
                 print(segment_link)
-                last_input = input("Enter segments (y/n)?")
-                fp = open(filing_dir + "/" + "segment_information.csv", "w")
-                writer = csv.writer(fp, quoting = csv.QUOTE_NONNUMERIC)
-                writer.writerow(["Segment Label", "Amount"])
-                while last_input != "n" and sum(values) != revenue: #sum values not equal to revenue
-                    curr_row = []
-                    last_input = input("Enter segment label: ")
-                    curr_row.append(last_input)
-                    labels.append(last_input)
-                    last_input = input("Enter segment value: ")
-                    curr_row.append(float(last_input))
-                    values.append(float(last_input))
-                    sources.append(index_tracker)
-                    num_segments += 1
-                    last_input = input("Enter more segments (y/n)?")
-                    index_tracker += 1
-                    writer.writerow(curr_row)
-                fp.close()
-                for n in range(len(sources)):
-                    targets.append(len(sources))
-                    colors.append("orange")
-                    x.append(0)
-                    y.append((n+1)/len(sources))
+                last_input = input("Enter segments (y/n)?").lower()
+                if last_input == "y":
+                    fp = open(filing_dir + "/" + "segment_information.csv", "w")
+                    writer = csv.writer(fp, quoting = csv.QUOTE_NONNUMERIC)
+                    writer.writerow(["Segment Label", "Amount"])
+                    while last_input != "n" and sum(values) != revenue: #sum values not equal to revenue
+                        curr_row = []
+                        last_input = input("Enter segment label: ")
+                        curr_row.append(last_input)
+                        labels.append(last_input)
+                        last_input = input("Enter segment value: ")
+                        curr_row.append(float(last_input))
+                        values.append(float(last_input))
+                        sources.append(index_tracker)
+                        num_segments += 1
+                        last_input = input("Enter more segments (y/n)?")
+                        index_tracker += 1
+                        writer.writerow(curr_row)
+                    fp.close()
+                    for n in range(len(sources)):
+                        targets.append(len(sources))
+                        colors.append("orange")
+                        x.append(0)
+                        y.append((n+1)/len(sources))
             else:
                 print("Couldn't find segment table")
         
